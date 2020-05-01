@@ -2,7 +2,7 @@
 require __DIR__.'/TelegramBot.php';
 use JuliusPC\TelegramBot;
 
-reuire __DIR__.'/config.php';
+require __DIR__.'/config.php';
 
 // setup
 $bot = new TelegramBot($dbh, $token);
