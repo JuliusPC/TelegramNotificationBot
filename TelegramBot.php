@@ -26,6 +26,11 @@ class TelegramBot {
     return $this->welcome_message;
   }
 
+  /**
+   * Constructs new TelegramBot instance
+   * @param \PDO $dbh PDO instance used for storing known chat_ids
+   * @param string $token The token obtained from <https://t.me/BotFather>
+   */
   public function __construct(\PDO $dbh, string $token) {
     $this->dbh = $dbh;
     $this->token = trim($token);
