@@ -28,3 +28,5 @@ $bot->sendBroadcastMessage('Hello <b>'.date('H:i').'</b>');
 $update = json_decode( file_get_contents("php://input"), true );
 echo $bot->processUpdate($update);
 */
+
+$bot->setMyCommands(json_encode([['command'=>'start', 'description'=>'starts bot'], ['command'=>'stop', 'description'=>'stops bot']]));

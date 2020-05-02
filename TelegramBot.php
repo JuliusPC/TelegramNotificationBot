@@ -15,15 +15,38 @@ class TelegramBot {
   protected $id;
   protected $httpclient;
 
-  protected $welcome_message = 'Welcome!';
+  protected $welcome_message = 'Hi!';
+  protected $stop_message = 'stopped';
 
+  /**
+   * Set welcome message for new users.
+   * @param strin $message The message.
+   */
   public function setWelcomeMessage(string $message) {
     $this->welcome_message = $message;
     return $this;
   }
 
+  /**
+   * Get set welcome message for new users.
+   */
   public function getWelcomeMessage() : string {
     return $this->welcome_message;
+  }
+
+  /**
+   * Set stop message for users quitting the bot.
+   */
+  public function setStopMessage(string $message) {
+    $this->stop_message = $message;
+    return $this;
+  }
+
+  /**
+   * Get set stop message for users quitting the bot.
+   */
+  public function getStopMessage() : string {
+    return $this->stop_message;
   }
 
   /**
@@ -41,6 +64,15 @@ class TelegramBot {
       `date_added`	INTEGER,
       PRIMARY KEY(`id`)
     );');
+    
+    $dbh->exec('CREATE TABLE IF NOT EXISTS `updates` (
+      `id`	INTEGER,
+      `date_added`	INTEGER,
+      `update_json`	TEXT,
+      PRIMARY KEY(`id`)
+    );');
+
+    $dbh->exec('DELETE FROM updates WHERE date_added < '.$dbh->quote((time()- 3600*24*7)));
 
     $this->httpclient = new Client([
       'base_uri' => 'https://api.telegram.org/bot'.$this->token.'/',
@@ -48,9 +80,14 @@ class TelegramBot {
     ]);
   }
 
+  /**
+   * Call the api with parameters.
+   * @param string $endpoint Name of endpoint without prefix /
+   * @param array $parameters Associative array with parameters to send.
+   */
   public function queryApi(string $endpoint, array $parameters = []) {
     try {
-      $response = $this->httpclient->request('GET', $endpoint, ['query' => $parameters, 'http_errors' => false]);
+      $response = $this->httpclient->request('POST', $endpoint, ['query' => $parameters, 'http_errors' => false]);
     } catch (ClientException $e) {
       // just catch everything because api returns statuscode 403 *and* JSON encoded body
       // error handling is up to the next layer
@@ -59,7 +96,12 @@ class TelegramBot {
     return (string)$response->getBody();
   }
 
-  protected function removeId($id) : bool {
+  /**
+   * removes given chat_id from the database
+   * @param string $id chat_id
+   * @return bool success
+   */
+  protected function removeId(string $id) : bool {
     return $this->dbh->exec('DELETE FROM `chats` WHERE id = '.$this->dbh->quote($id));
   }
 
@@ -95,7 +137,7 @@ class TelegramBot {
       ),
       true);
     if(!($result['ok']??true)) {
-      if($result['error_code']??'' == 403 && preg_match('/blocked/i', $result['description']??'')) {
+      if($result['error_code']??'' == 403) {
         $this->removeId($chat_id);
       }
       return false;
@@ -133,7 +175,21 @@ class TelegramBot {
    * @return bool True if update was processed successful
    */
   public function processUpdate(array $update) : bool {
+    $result = $this->dbh->exec('INSERT INTO `updates`
+      (id, date_added, update_json)
+      VALUES
+      ('.$this->dbh->quote($update['update_id']).', '.$this->dbh->quote(time()).', '.$this->dbh->quote(\json_encode($update,  JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)).')');
+    // update_id already exists, discard
+    if($result != 1) {
+      return true;
+    }
     $id = $update['message']['chat']['id'];
+    if($update['message']['entities'][0]['type']??'' == 'bot_command') {
+      preg_match('#^(\/)?([^\s@]+)#i', $update['message']['text'], $matches);
+      if(isset($matches[2]) && !empty($matches[2]) && $matches[2] != 'start') {
+        return $this->executeCommand($matches[2], $update);
+      }
+    }
     if(isset($update['message']['left_chat_member']) || isset($update['message']['left_chat_participant'])) {
       if(
         $update['message']['left_chat_member']['id'] == $this->id
@@ -143,19 +199,13 @@ class TelegramBot {
         return $this->removeId($id);
       }
     }
-    $result = $this->dbh->exec('INSERT INTO `chats`
-      (id, date_added)
-      VALUES
-      ('.$this->dbh->quote($id).', '.$this->dbh->quote(time()).')'
-    );
-    // if chat_id is new
-    if($result == 1 && !empty($this->welcome_message)) {
-      $this->sendMessage($this->welcome_message, $this->dbh->lastInsertId());
-      return true;
-    }
-    return false;
+    
+    return $this->addIdIfNotExists($id);
   }
 
+  /**
+   * Pull updates from the api. Does not work when webhook is set.
+   */
   public function getUpdates() : string {
     return $this->queryApi('getUpdates');
   }
@@ -174,11 +224,76 @@ class TelegramBot {
     return false;
   }
 
+  /**
+   * deletes set webhook
+   */
   public function deleteWebhook() : bool {
     return $this->queryApi('deleteWebhook');
   }
 
+  /**
+   * get info about the set webhook
+   */
   public function getWebhookInfo() : string {
     return $this->queryApi('getWebhookInfo');
+  }
+
+  /**
+   * Adds chat_id to database if it not already exists
+   * @param string $id chat_id
+   * @param bool $silent If true don’t send welcome message.
+   * @return bool success
+   */
+  public function addIdIfNotExists(string $id, bool $silent = false) {
+    $result = $this->dbh->exec('INSERT INTO `chats`
+      (id, date_added)
+      VALUES
+      ('.$this->dbh->quote($id).', '.$this->dbh->quote(time()).')'
+    );
+    // if chat_id is new
+    if($result == 1) {
+      if (!$silent && !empty($this->welcome_message)) {
+        return $this->sendMessage($this->welcome_message, $this->dbh->lastInsertId());
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Sets the bots supported commands.
+   * @param string $commands JSON encoded String of commands: json_encode([['command'=>'', 'description'=>'']])
+   * @return bool success
+   */
+  public function setMyCommands(string $commands) : bool {
+    return $this->queryApi('setMyCommands', ['commands' => $commands]);
+  }
+
+  /**
+   * get already set commands from the api
+   */
+  public function getMyCommands() : string {
+    return $this->queryApi('getMyCommands');
+  }
+
+  /**
+   * Extend this method if you need to implement custom commands.
+   * @param string $command parsed command without leading /
+   * @param array $update Update object from API
+   * @return bool success 
+   */
+  protected function executeCommand(string $command, array $update) : bool {
+    $id = $update['message']['chat']['id']??'';
+    switch ($command) {
+      case 'stop':
+        $this->sendMessage($this->stop_message, $id);
+        return $this->removeId($id);
+
+      case 'start':
+        return $this->addIdIfNotExists($id);
+      
+      default:
+        return false;
+    }
   }
 }
