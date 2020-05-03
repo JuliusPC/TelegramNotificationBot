@@ -296,4 +296,13 @@ class TelegramBot {
         return false;
     }
   }
+
+  /**
+   * Prepare HTML for bots as they can’t send arbitrary HTML. This is not a HTML sanitzer as HTML Purifier is!
+   * @param string $html HTML formatted input.
+   * @return string Stripped down to bare formatting HTML.
+   */
+  public function sanitizeHTML(string $html) {
+    return \strip_tags($string, '<b><strong><i><em><u><ins><s><strike><del><a><code><pre>');
+  }
 }

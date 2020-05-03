@@ -1,5 +1,15 @@
 {
+    "name": "JuliusPC/TelegramNotificationBot",
+    "type": "library",
+    "description": "Simple to use library to notify telegram users via bot API.",
     "require": {
+        "php": "^7.0",
+        "ext-json": "*",
+        "ext-PDO": "*",
+        "ext-pcre": "*",
         "guzzlehttp/guzzle": "~6.0"
+    },
+    "autoload": {
+        "psr-4": {"JuliusPC\\": "/"}
     }
 }
