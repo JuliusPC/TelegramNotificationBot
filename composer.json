@@ -1,6 +1,7 @@
 {
     "name": "juliuspc/telegram-notification-bot",
     "type": "library",
+    "license": "CC0-1.0",
     "description": "Simple to use library to notify telegram users via bot API.",
     "require": {
         "php": "^7.0",
