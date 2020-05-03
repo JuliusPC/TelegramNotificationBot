@@ -59,20 +59,20 @@ class TelegramBot {
     $this->token = trim($token);
     $this->id = trim(explode(':', $this->token)[0]);
 
-    $dbh->exec('CREATE TABLE IF NOT EXISTS `chats` (
+    $dbh->exec('CREATE TABLE IF NOT EXISTS `tgnb_chats` (
       `id`	INTEGER,
       `date_added`	INTEGER,
       PRIMARY KEY(`id`)
     );');
     
-    $dbh->exec('CREATE TABLE IF NOT EXISTS `updates` (
+    $dbh->exec('CREATE TABLE IF NOT EXISTS `tgnb_updates` (
       `id`	INTEGER,
       `date_added`	INTEGER,
       `update_json`	TEXT,
       PRIMARY KEY(`id`)
     );');
 
-    $dbh->exec('DELETE FROM updates WHERE date_added < '.$dbh->quote((time()- 3600*24*7)));
+    $dbh->exec('DELETE FROM `tgnb_updates` WHERE `date_added` < '.$dbh->quote((time()- 3600*24*7)));
 
     $this->httpclient = new Client([
       'base_uri' => 'https://api.telegram.org/bot'.$this->token.'/',
@@ -102,7 +102,7 @@ class TelegramBot {
    * @return bool success
    */
   protected function removeId(string $id) : bool {
-    return $this->dbh->exec('DELETE FROM `chats` WHERE id = '.$this->dbh->quote($id));
+    return $this->dbh->exec('DELETE FROM `tgnb_chats` WHERE id = '.$this->dbh->quote($id));
   }
 
   /**
@@ -113,7 +113,7 @@ class TelegramBot {
    */
   public function sendBroadcastMessage(string $message) : int {
     $count = 0;
-    $result = $this->dbh->query('SELECT id FROM chats');
+    $result = $this->dbh->query('SELECT id FROM tgnb_chats');
     while($row = $result->fetch(\PDO::FETCH_ASSOC)) {
       if($this->sendMessage($message, $row['id'])) {
         $count++;
@@ -175,7 +175,7 @@ class TelegramBot {
    * @return bool True if update was processed successful
    */
   public function processUpdate(array $update) : bool {
-    $result = $this->dbh->exec('INSERT INTO `updates`
+    $result = $this->dbh->exec('INSERT INTO `tgnb_updates`
       (id, date_added, update_json)
       VALUES
       ('.$this->dbh->quote($update['update_id']).', '.$this->dbh->quote(time()).', '.$this->dbh->quote(\json_encode($update,  JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)).')');
@@ -245,7 +245,7 @@ class TelegramBot {
    * @return bool success
    */
   public function addIdIfNotExists(string $id, bool $silent = false) {
-    $result = $this->dbh->exec('INSERT INTO `chats`
+    $result = $this->dbh->exec('INSERT INTO `tgnb_chats`
       (id, date_added)
       VALUES
       ('.$this->dbh->quote($id).', '.$this->dbh->quote(time()).')'
