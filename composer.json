@@ -1,5 +1,5 @@
 {
-    "name": "JuliusPC/TelegramNotificationBot",
+    "name": "juliuspc/telegram-notification-bot",
     "type": "library",
     "description": "Simple to use library to notify telegram users via bot API.",
     "require": {
