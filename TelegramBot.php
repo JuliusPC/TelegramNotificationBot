@@ -1,8 +1,6 @@
 <?php
 namespace JuliusPC;
 
-require 'vendor/autoload.php';
-
 use GuzzleHttp\ {
   Client,
   Exception\ClientException
