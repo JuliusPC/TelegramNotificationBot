@@ -49,10 +49,10 @@ $bot->setWebhook('https://example.org/someobscurefolder/webhook.php');
 
 // some other useful stuff
 // remove webhook
-//$bot->deleteWebhook();
+$bot->deleteWebhook();
 
 // get infos about configured webhooks
-//echo $bot->getWebhookInfo();
+echo $bot->getWebhookInfo();
 ~~~
 
 Put this in the file `/someobscurefolder/webhook.php` (don’t name it like this 😉):
