@@ -48,7 +48,8 @@ class TelegramBot {
   }
 
   /**
-   * Constructs new TelegramBot instance
+   * Creates new TelegramBot instance
+   * 
    * @param \PDO $dbh PDO instance used for storing known chat_ids
    * @param string $token The token obtained from <https://t.me/BotFather>
    */
@@ -58,16 +59,24 @@ class TelegramBot {
     $this->id = trim(explode(':', $this->token)[0]);
 
     $dbh->exec('CREATE TABLE IF NOT EXISTS `tgnb_chats` (
-      `id`	INTEGER,
+      `chat_id`	INTEGER,
       `date_added`	INTEGER,
       PRIMARY KEY(`id`)
     );');
     
     $dbh->exec('CREATE TABLE IF NOT EXISTS `tgnb_updates` (
-      `id`	INTEGER,
+      `update_id`	INTEGER,
       `date_added`	INTEGER,
       `update_json`	TEXT,
       PRIMARY KEY(`id`)
+    );');
+
+    $dbh->exec('CREATE TABLE IF NOT EXISTS `tgnb_messages` (
+      `chat_id`	INTEGER,
+      `message_id` INTEGER,
+      `date_added`	INTEGER,
+      `chosen_id`	TEXT,
+      PRIMARY KEY(`chat_id`, `message_id`)
     );');
 
     $dbh->exec('DELETE FROM `tgnb_updates` WHERE `date_added` < '.$dbh->quote((time()- 3600*24*7)));
@@ -80,6 +89,7 @@ class TelegramBot {
 
   /**
    * Call the api with parameters.
+   * 
    * @param string $endpoint Name of endpoint without prefix /
    * @param array $parameters Associative array with parameters to send.
    */
@@ -96,24 +106,28 @@ class TelegramBot {
 
   /**
    * removes given chat_id from the database
+   * 
    * @param string $id chat_id
    * @return bool success
    */
   protected function removeId(string $id) : bool {
-    return $this->dbh->exec('DELETE FROM `tgnb_chats` WHERE id = '.$this->dbh->quote($id));
+    return $this->dbh->exec('DELETE FROM `tgnb_chats` WHERE `chat_id` = '.$this->dbh->quote($id));
   }
 
   /**
    * Broadcasts given message to all registered chats
    *
    * @param string $message Message to send
+   * @param string $chosen_id An identifier you can provide to identify the message when you want to edit it with editBroadcastMessage()
    * @return int Number of sent Messages (equals number active chats)
    */
-  public function sendBroadcastMessage(string $message) : int {
+  public function sendBroadcastMessage(string $message, string $chosen_id) : int {
     $count = 0;
-    $result = $this->dbh->query('SELECT id FROM tgnb_chats');
+    $result = $this->dbh->query('SELECT `chat_id` FROM `tgnb_chats`');
     while($row = $result->fetch(\PDO::FETCH_ASSOC)) {
-      if($this->sendMessage($message, $row['id'])) {
+      if($message_id = $this->sendMessage($message, $row['chat_id'])) {
+        $this->dbh->exec('INSERT INTO `tgnb_messages` (`chat_id`, `message_id`, `date_added`, `chosen_id`)
+          VALUES ('.$this->dbh->quote($row['chat_id']).', '.$this->dbh->quote($message_id).', '.$this->dbh->quote(time()).', '.$this->dbh->quote($chosen_id).')');
         $count++;
       }
     }
@@ -126,8 +140,9 @@ class TelegramBot {
    * @param string $text Message text
    * @param string $chat_id The chat’s id
    * @param string $parse_mode either HTML, MarkdownV2 or Markdown – default is HTML
+   * @return string The sent message’s id.
    */
-  protected function sendMessage(string $text, string $chat_id, string $parse_mode = 'HTML') : bool {
+  public function sendMessage(string $text, string $chat_id, string $parse_mode = 'HTML') : string {
     $result = json_decode(
       $this->queryApi(
         'sendMessage',
@@ -140,11 +155,69 @@ class TelegramBot {
       }
       return false;
     }
-    return true;
+    return $result['result']['message_id'];
+  }
+
+  /**
+   * Edit a single Message identified by its chat_id and message_id by providing a new text.
+   * 
+   * @param string $text text
+   * @param string $chat_id chat_id
+   * @param string $message_id message_id
+   * @param string $parse_mode parse_mode (default HTML)
+   * @return string JSON encoded result
+   */
+  public function editMessageText(string $text, string $chat_id, string $message_id, string $parse_mode = 'HTML') : string {
+    return $this->queryApi('editMessageText', compact('text', 'chat_id', 'message_id', 'parse_mode'));
+  }
+
+  /**
+   * Edits an already sent broadcasted message in all chats
+   *
+   * @param string $message new message text
+   * @param string $chosen_id The identifier you provided by sending the original message with sendBroadcastMessage()
+   * @return int Number of edited Messages
+   */
+  public function editBroadcastMessage(string $message, string $chosen_id) : int{
+    $result = $this->dbh->query('SELECT `message_id`, `chat_id` FROM `tgnb_messages` WHERE `chosen_id` = '.$this->dbh->quote($chosen_id));
+    $counter = 0;
+    while($row = $result->fetch(\PDO::FETCH_ASSOC)) {
+      $counter += (int)$this->editMessageText($message, $row['chat_id'], $row['message_id']);
+    }
+    return $counter;
+  }
+
+  /**
+   * Deletes Message. This is only in the first 48 hours after sending possible.
+   * 
+   * @param string $chat_id chat_id
+   * @param string $message_id message_id
+   * @return bool true if message was deleted
+   */
+  public function deleteMessage(string $chat_id, string $message_id) : bool {
+    return $this->queryApi('deleteMessage', compact('message_id', 'chat_id'));
+  }
+
+  /**
+   * Deletes broadcasted messages identified by the id you have to choose when sending the messages.
+   * 
+   * @param string $chosen_id The id you have chosen to identify the sent messages.
+   * @return int Number of deleted messages.
+   */
+  public function deleteBroadcastMessage(string $chosen_id) : int {
+    $result = $this->dbh->query('SELECT `message_id`, `chat_id` FROM `tgnb_messages` WHERE `chosen_id` = '.$this->dbh->quote($chosen_id));
+    $counter = 0;
+    while($row = $result->fetch(\PDO::FETCH_ASSOC)) {
+      $this->deleteMessage($row['chat_id'], $row['message_id']);
+      $this->dbh->query('DELETE FROM `tgnb_messages` WHERE `chat_id` = '.$this->dbh->quote($row['chat_id']).' AND `message_id` = '.$this->dbh->quote($row['message_id']));
+      $counter += (int)$this->deleteMessage($row['chat_id'], $row['message_id']);
+    }
+    return $counter;
   }
 
   /**
    * processes multiple updates as provided by getUpdates()
+   * 
    * @param string $update JSON encoded update
    * @return int Number of processed updates
    */
@@ -174,7 +247,7 @@ class TelegramBot {
    */
   public function processUpdate(array $update) : bool {
     $result = $this->dbh->exec('INSERT INTO `tgnb_updates`
-      (id, date_added, update_json)
+      (update_id, date_added, update_json)
       VALUES
       ('.$this->dbh->quote($update['update_id']).', '.$this->dbh->quote(time()).', '.$this->dbh->quote(\json_encode($update,  JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)).')');
     // update_id already exists, discard
@@ -238,13 +311,14 @@ class TelegramBot {
 
   /**
    * Adds chat_id to database if it not already exists
+   * 
    * @param string $id chat_id
    * @param bool $silent If true don’t send welcome message.
    * @return bool success
    */
   public function addIdIfNotExists(string $id, bool $silent = false) {
     $result = $this->dbh->exec('INSERT INTO `tgnb_chats`
-      (id, date_added)
+      (chat_id, date_added)
       VALUES
       ('.$this->dbh->quote($id).', '.$this->dbh->quote(time()).')'
     );
@@ -260,6 +334,7 @@ class TelegramBot {
 
   /**
    * Sets the bots supported commands.
+   * 
    * @param string $commands JSON encoded String of commands: json_encode([['command'=>'', 'description'=>'']])
    * @return bool success
    */
@@ -275,7 +350,8 @@ class TelegramBot {
   }
 
   /**
-   * Extend this method if you need to implement custom commands.
+   * Handles bot commands. Extend this method if you want to implement custom commands.
+   * 
    * @param string $command parsed command without leading /
    * @param array $update Update object from API
    * @return bool success 
@@ -297,6 +373,7 @@ class TelegramBot {
 
   /**
    * Prepare HTML for bots as they can’t send arbitrary HTML. This is not a HTML sanitzer as HTML Purifier is!
+   * 
    * @param string $html HTML formatted input.
    * @return string Stripped down to bare formatting HTML.
    */
