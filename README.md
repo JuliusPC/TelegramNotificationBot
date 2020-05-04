@@ -7,8 +7,8 @@ You can use it for broadcasting news extracted from a RSS feed to different chat
 Usage hints:
 
 1. install library:
-  - install via [Composer](https://getcomposer.org): `composer require juliuspc/telegram-notification-bot`
-  - clone or download this repo, use `composer install` to install dependencies
+   - install via [Composer](https://getcomposer.org): `composer require juliuspc/telegram-notification-bot`
+   - clone or download this repo, use `composer install` to install dependencies
 2. [obtain bot access token](https://core.telegram.org/bots/api)
 3. write your code using this library
 
