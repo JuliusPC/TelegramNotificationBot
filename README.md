@@ -7,7 +7,7 @@ This is only a thin layer on top the bot api that abstracts away the nasty thing
 Usage hints:
 
 1. install library:
-  - install via Composer: `composer require JuliusPC/TelegramNotificationBot`
+  - install via [Composer](https://getcomposer.org): `composer require juliuspc/telegram-notification-bot`
   - clone or download this repo, use `composer install` to install dependencies
 2. [obtain bot access token](https://core.telegram.org/bots/api)
 3. write your code using this library
@@ -102,14 +102,18 @@ If you want to implement your own command, the easiest way to do this is extendi
 ~~~php
 class AdvancedBot extends TelegramBot {
     protected function executeCommand(string $command, array $update) : bool {
-        if($command == 'echo') {
-            $message = \json_encode($update, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
-            $id = $update['message']['chat']['id']??'';
-            return $this->sendMessage('<pre>'.htmlspecialchars($message).'</pre>', $id);
-        } else {
-            // we don’t know this command, so let the parent class deal with it:
-            parent::executeCommand($command, $update);
-        }
+        $id = $update['message']['chat']['id']??'';
+        switch ($command) {
+        case 'echo':
+          $message = \json_encode($update, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+          return $this->sendMessage('<pre>'.htmlspecialchars($message).'</pre>', $id);
+        
+        case 'rickroll':
+          return $this->sendMessage('<a href="https://www.youtube.com/watch?v=DLzxrzFCyOs">Very important information</a>', $id);
+
+        default:
+          return parent::executeCommand($command, $update);
+      }
     }
 }
 
