@@ -81,6 +81,8 @@ class TelegramBot {
 
     $dbh->exec('DELETE FROM `tgnb_updates` WHERE `date_added` < '.$dbh->quote((time()- 3600*24*7)));
 
+    $dbh->exec('DELETE FROM `tgnb_messages` WHERE `date_added` < '.$dbh->quote((time()- 3600*24*7)));
+
     $this->httpclient = new Client([
       'base_uri' => 'https://api.telegram.org/bot'.$this->token.'/',
       'timeout'  => 2.0,
@@ -111,7 +113,9 @@ class TelegramBot {
    * @return bool success
    */
   protected function removeId(string $id) : bool {
-    return $this->dbh->exec('DELETE FROM `tgnb_chats` WHERE `chat_id` = '.$this->dbh->quote($id));
+    $sth = $this->dbh->prepare('DELETE FROM `tgnb_chats` WHERE `chat_id` = ?');
+    $sth->bindValue(1, $id, \PDO::PARAM_STR);
+    return $sth->execute();
   }
 
   /**
@@ -124,10 +128,15 @@ class TelegramBot {
   public function sendBroadcastMessage(string $message, string $chosen_id) : int {
     $count = 0;
     $result = $this->dbh->query('SELECT `chat_id` FROM `tgnb_chats`');
+    $sth = $this->dbh->prepare('INSERT INTO `tgnb_messages` (`chat_id`, `message_id`, `date_added`, `chosen_id`)
+    VALUES (?, ?, ?, ?)');
     while($row = $result->fetch(\PDO::FETCH_ASSOC)) {
       if($message_id = $this->sendMessage($message, $row['chat_id'])) {
-        $this->dbh->exec('INSERT INTO `tgnb_messages` (`chat_id`, `message_id`, `date_added`, `chosen_id`)
-          VALUES ('.$this->dbh->quote($row['chat_id']).', '.$this->dbh->quote($message_id).', '.$this->dbh->quote(time()).', '.$this->dbh->quote($chosen_id).')');
+        $sth->bindValue(1, $row['chat_id'], \PDO::PARAM_STR);
+        $sth->bindValue(2, $message_id, \PDO::PARAM_STR);
+        $sth->bindValue(3, time(), \PDO::PARAM_INT);
+        $sth->bindValue(4, $chosen_id, \PDO::PARAM_STR);
+        $sth->execute();
         $count++;
       }
     }
@@ -179,9 +188,11 @@ class TelegramBot {
    * @return int Number of edited Messages
    */
   public function editBroadcastMessage(string $message, string $chosen_id) : int{
-    $result = $this->dbh->query('SELECT `message_id`, `chat_id` FROM `tgnb_messages` WHERE `chosen_id` = '.$this->dbh->quote($chosen_id));
+    $sth = $this->dbh->prepare('SELECT `message_id`, `chat_id` FROM `tgnb_messages` WHERE `chosen_id` = ?');
+    $sth->bindValue(1, $chosen_id);
+    $sth->execute();
     $counter = 0;
-    while($row = $result->fetch(\PDO::FETCH_ASSOC)) {
+    while($row = $sth->fetch(\PDO::FETCH_ASSOC)) {
       $counter += (int)$this->editMessageText($message, $row['chat_id'], $row['message_id']);
     }
     return $counter;
@@ -195,7 +206,10 @@ class TelegramBot {
    * @return bool true if message was deleted
    */
   public function deleteMessage(string $chat_id, string $message_id) : bool {
-    return $this->queryApi('deleteMessage', compact('message_id', 'chat_id'));
+    $sth = $this->dbh->prepare('DELETE FROM `tgnb_messages` WHERE `chat_id` = ? AND `message_id` = ?');
+    $sth->bindValue(1, $chat_id, \PDO::PARAM_STR);
+    $sth->bindValue(2, $message_id, \PDO::PARAM_STR);
+    return $sth->execute() && $this->queryApi('deleteMessage', compact('message_id', 'chat_id'));
   }
 
   /**
@@ -205,11 +219,11 @@ class TelegramBot {
    * @return int Number of deleted messages.
    */
   public function deleteBroadcastMessage(string $chosen_id) : int {
-    $result = $this->dbh->query('SELECT `message_id`, `chat_id` FROM `tgnb_messages` WHERE `chosen_id` = '.$this->dbh->quote($chosen_id));
+    $sth = $this->dbh->prepare('SELECT `message_id`, `chat_id` FROM `tgnb_messages` WHERE `chosen_id` = ?');
+    $sth->bindValue(1, $chosen_id, \PDO::PARAM_STR);
+    $sth->execute();
     $counter = 0;
-    while($row = $result->fetch(\PDO::FETCH_ASSOC)) {
-      $this->deleteMessage($row['chat_id'], $row['message_id']);
-      $this->dbh->query('DELETE FROM `tgnb_messages` WHERE `chat_id` = '.$this->dbh->quote($row['chat_id']).' AND `message_id` = '.$this->dbh->quote($row['message_id']));
+    while($row = $sth->fetch(\PDO::FETCH_ASSOC)) {
       $counter += (int)$this->deleteMessage($row['chat_id'], $row['message_id']);
     }
     return $counter;
@@ -246,12 +260,16 @@ class TelegramBot {
    * @return bool True if update was processed successful
    */
   public function processUpdate(array $update) : bool {
-    $result = $this->dbh->exec('INSERT INTO `tgnb_updates`
-      (update_id, date_added, update_json)
-      VALUES
-      ('.$this->dbh->quote($update['update_id']).', '.$this->dbh->quote(time()).', '.$this->dbh->quote(\json_encode($update,  JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT)).')');
+    $sth = $this->dbh->prepare('INSERT INTO `tgnb_updates`
+    (update_id, date_added, update_json)
+    VALUES
+    (?, ?, ?)');
+    $sth->bindValue(1, $update['update_id'], \PDO::PARAM_STR);
+    $sth->bindValue(2, time(), \PDO::PARAM_INT);
+    $sth->bindValue(3, \json_encode($update, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), \PDO::PARAM_STR);
+    $result = $sth->execute();
     // update_id already exists, discard
-    if($result != 1) {
+    if(!$result) {
       return true;
     }
     $id = $update['message']['chat']['id'];
@@ -262,11 +280,8 @@ class TelegramBot {
       }
     }
     if(isset($update['message']['left_chat_member']) || isset($update['message']['left_chat_participant'])) {
-      if(
-        $update['message']['left_chat_member']['id'] == $this->id
-        ||
-        $update['message']['left_chat_member']['id'] == $this->id
-      ) {
+      if($update['message']['left_chat_member']['id'] == $this->id
+        || $update['message']['left_chat_member']['id'] == $this->id) {
         return $this->removeId($id);
       }
     }
@@ -317,13 +332,15 @@ class TelegramBot {
    * @return bool success
    */
   public function addIdIfNotExists(string $id, bool $silent = false) {
-    $result = $this->dbh->exec('INSERT INTO `tgnb_chats`
-      (chat_id, date_added)
-      VALUES
-      ('.$this->dbh->quote($id).', '.$this->dbh->quote(time()).')'
-    );
+    $sth = $this->dbh->prepare('INSERT INTO `tgnb_chats`
+    (chat_id, date_added)
+    VALUES
+    (?, ?)');
+    $sth->bindValue(1, $id, \PDO::PARAM_STR);
+    $sth->bindValue(2, time(), \PDO::PARAM_INT);
+    $result = $sth->execute();
     // if chat_id is new
-    if($result == 1) {
+    if($result) {
       if (!$silent && !empty($this->welcome_message)) {
         return $this->sendMessage($this->welcome_message, $this->dbh->lastInsertId());
       }
@@ -377,7 +394,7 @@ class TelegramBot {
    * @param string $html HTML formatted input.
    * @return string Stripped down to bare formatting HTML.
    */
-  public function sanitizeHTML(string $html) {
+  public function stripHTML(string $html) {
     return \strip_tags($string, '<b><strong><i><em><u><ins><s><strike><del><a><code><pre>');
   }
 }

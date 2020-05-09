@@ -113,7 +113,7 @@ $commands = [
         'description'=>'stops bot'
     ]
 ];
-$bot->setMyCommands(json_encode());
+$bot->setMyCommands(json_encode($commands));
 ~~~
 
 If you want to implement your own command, the easiest way to do this is extending the use `TelegramBot` class. In this little example we add a commad that echos the message:
