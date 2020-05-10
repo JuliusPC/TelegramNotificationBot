@@ -395,6 +395,6 @@ class TelegramBot {
    * @return string Stripped down to bare formatting HTML.
    */
   public function stripHTML(string $html) {
-    return \strip_tags($string, '<b><strong><i><em><u><ins><s><strike><del><a><code><pre>');
+    return \strip_tags($html, '<b><strong><i><em><u><ins><s><strike><del><a><code><pre>');
   }
 }
