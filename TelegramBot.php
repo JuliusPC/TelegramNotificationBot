@@ -61,14 +61,14 @@ class TelegramBot {
     $dbh->exec('CREATE TABLE IF NOT EXISTS `tgnb_chats` (
       `chat_id`	INTEGER,
       `date_added`	INTEGER,
-      PRIMARY KEY(`id`)
+      PRIMARY KEY(`chat_id`)
     );');
     
     $dbh->exec('CREATE TABLE IF NOT EXISTS `tgnb_updates` (
       `update_id`	INTEGER,
       `date_added`	INTEGER,
       `update_json`	TEXT,
-      PRIMARY KEY(`id`)
+      PRIMARY KEY(`update_id`)
     );');
 
     $dbh->exec('CREATE TABLE IF NOT EXISTS `tgnb_messages` (
@@ -92,7 +92,7 @@ class TelegramBot {
   /**
    * Call the api with parameters.
    * 
-   * @param string $endpoint Name of endpoint without prefix /
+   * @param string $endpoint Name of endpoint without prefixed /
    * @param array $parameters Associative array with parameters to send.
    */
   public function queryApi(string $endpoint, array $parameters = []) {
